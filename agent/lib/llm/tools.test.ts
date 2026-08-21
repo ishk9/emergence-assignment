@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { configuredSearch, htmlToText, mapExa, mapTavily, webSearch } from "./tools.ts";
+import { configuredSearch, htmlToText, mapExa, mapTavily, researchTools, researchToolsFor, webSearch } from "./tools.ts";
 
 test("htmlToText strips tags/scripts/styles and collapses whitespace", () => {
   const html = `<html><head><style>.a{color:red}</style><script>var x=1</script></head>
@@ -41,4 +41,16 @@ test("webSearch returns unavailable (never throws) with no backend", async () =>
   const out = await webSearch("anything", 3, {} as NodeJS.ProcessEnv);
   assert.equal(out.results.length, 0);
   assert.match(out.unavailable!, /no search backend/);
+});
+
+test("researchToolsFor(anthropic) returns Anthropic native web_search + web_fetch", async () => {
+  const tools = await researchToolsFor({ provider: "anthropic", model: "claude-sonnet-4-6" });
+  assert.ok(tools.web_search, "has web_search");
+  assert.ok(tools.web_fetch, "has web_fetch");
+  assert.notEqual(tools.web_search, researchTools.web_search); // native, not our custom tool
+});
+
+test("researchToolsFor(non-anthropic) falls back to the pluggable tools", async () => {
+  const tools = await researchToolsFor({ provider: "gateway", model: "openai/gpt-5.4" });
+  assert.equal(tools, researchTools);
 });

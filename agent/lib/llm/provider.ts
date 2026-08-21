@@ -24,8 +24,11 @@ export interface LlmConfig {
 }
 
 const DEFAULT_CONFIG: LlmConfig = {
-  provider: "gateway",
-  model: "anthropic/claude-sonnet-5",
+  // Anthropic direct (uses ANTHROPIC_API_KEY). Sonnet keeps the fan-out
+  // affordable; set LLM_MODEL=claude-opus-4-8 for maximum quality, or
+  // LLM_PROVIDER=gateway/openai/bedrock to route elsewhere.
+  provider: "anthropic",
+  model: "claude-sonnet-4-6",
 };
 
 const PROVIDERS: readonly LlmProvider[] = ["gateway", "openai", "anthropic", "bedrock"];

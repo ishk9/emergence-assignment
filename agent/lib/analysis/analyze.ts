@@ -11,8 +11,8 @@ import { generateText, Output, stepCountIs } from "ai";
 import { z } from "zod";
 import { Claim, DimensionResult, type Candidate, type Dimension } from "../types.ts";
 import { createLogger } from "../logger.ts";
-import { resolveModel } from "../llm/provider.ts";
-import { researchTools } from "../llm/tools.ts";
+import { loadLlmConfig, resolveModel } from "../llm/provider.ts";
+import { researchToolsFor } from "../llm/tools.ts";
 import { buildContext, systemPrompt } from "./prompts.ts";
 
 const log = createLogger("analysis");
@@ -46,13 +46,15 @@ export type RunAnalysis = (input: {
 const MAX_STEPS = 8;
 
 const defaultRun: RunAnalysis = async ({ system, context, correction }) => {
-  const model = await resolveModel();
+  const config = loadLlmConfig();
+  const model = await resolveModel(config);
+  const tools = await researchToolsFor(config);
   const prompt = correction ? `${context}\n\n[CORRECTION]\n${correction}` : context;
   const { output } = await generateText({
     model,
     system,
     prompt,
-    tools: researchTools,
+    tools,
     stopWhen: stepCountIs(MAX_STEPS),
     output: Output.object({ schema: AnalysisOutput }),
   });

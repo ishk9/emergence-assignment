@@ -10,6 +10,7 @@
 import { tool } from "ai";
 import { z } from "zod";
 import { createLogger } from "../logger.ts";
+import type { LlmConfig } from "./provider.ts";
 
 const log = createLogger("llm:tools");
 
@@ -150,3 +151,20 @@ export const webSearchTool = tool({
 });
 
 export const researchTools = { web_fetch: webFetchTool, web_search: webSearchTool };
+
+/**
+ * Research tools for the configured provider. Anthropic gets its native
+ * server-side web_search + web_fetch (no extra API keys — runs on Anthropic's
+ * side via ANTHROPIC_API_KEY; web search must be enabled in the Anthropic
+ * Console). Every other provider uses the pluggable tools above.
+ */
+export async function researchToolsFor(config: LlmConfig) {
+  if (config.provider === "anthropic") {
+    const { anthropic } = await import("@ai-sdk/anthropic");
+    return {
+      web_search: anthropic.tools.webSearch_20250305({ maxUses: 5 }),
+      web_fetch: anthropic.tools.webFetch_20250910({ maxUses: 3 }),
+    };
+  }
+  return researchTools;
+}
