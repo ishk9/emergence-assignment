@@ -34,18 +34,24 @@ const AnalysisOutput = z.object({
 });
 export type AnalysisOutput = z.infer<typeof AnalysisOutput>;
 
-/** The injectable research step: system + context -> raw analysis output. */
-export type RunAnalysis = (input: { system: string; context: string }) => Promise<AnalysisOutput>;
+/** The injectable research step: system + context (+ optional corrective note
+ *  from the retry layer) -> raw analysis output. */
+export type RunAnalysis = (input: {
+  system: string;
+  context: string;
+  correction?: string | null;
+}) => Promise<AnalysisOutput>;
 
 /** How many tool-calling steps the research loop may take per dimension. */
 const MAX_STEPS = 8;
 
-const defaultRun: RunAnalysis = async ({ system, context }) => {
+const defaultRun: RunAnalysis = async ({ system, context, correction }) => {
   const model = await resolveModel();
+  const prompt = correction ? `${context}\n\n[CORRECTION]\n${correction}` : context;
   const { output } = await generateText({
     model,
     system,
-    prompt: context,
+    prompt,
     tools: researchTools,
     stopWhen: stepCountIs(MAX_STEPS),
     output: Output.object({ schema: AnalysisOutput }),
@@ -71,9 +77,14 @@ export async function analyzeDimension(
   candidate: Candidate,
   dimension: Dimension,
   run: RunAnalysis = defaultRun,
+  correction: string | null = null,
 ): Promise<DimensionResult> {
   log.info("analyzing", { domain: candidate.domain, dimension });
-  const output = await run({ system: systemPrompt(dimension), context: buildContext(candidate) });
+  const output = await run({
+    system: systemPrompt(dimension),
+    context: buildContext(candidate),
+    correction,
+  });
   const result = toDimensionResult(dimension, output);
   log.info("analyzed", { domain: candidate.domain, dimension, claims: result.claims.length });
   return result;

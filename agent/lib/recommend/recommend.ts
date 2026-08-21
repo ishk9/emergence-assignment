@@ -30,7 +30,11 @@ const GenSchema = z.object({
 });
 type GenOutput = z.infer<typeof GenSchema>;
 
-export type RunRecommend = (input: { system: string; prompt: string }) => Promise<GenOutput>;
+export type RunRecommend = (input: {
+  system: string;
+  prompt: string;
+  correction?: string | null;
+}) => Promise<GenOutput>;
 
 export function buildPrompt(
   candidate: Candidate,
@@ -63,12 +67,13 @@ export function normalize(raw: GenOutput): Recommendation {
   });
 }
 
-const defaultRun: RunRecommend = async ({ system, prompt }) => {
+const defaultRun: RunRecommend = async ({ system, prompt, correction }) => {
   const model = await resolveModel();
+  const finalPrompt = correction ? `${prompt}\n\n[CORRECTION]\n${correction}` : prompt;
   const { output } = await generateText({
     model,
     system,
-    prompt,
+    prompt: finalPrompt,
     output: Output.object({ schema: GenSchema }),
   });
   return output;
@@ -79,9 +84,10 @@ export async function recommend(
   results: DimensionResult[],
   score: Score,
   run: RunRecommend = defaultRun,
+  correction: string | null = null,
 ): Promise<Recommendation> {
   log.info("recommending", { domain: candidate.domain, score: score.total });
-  const raw = await run({ system: SYSTEM, prompt: buildPrompt(candidate, results, score) });
+  const raw = await run({ system: SYSTEM, prompt: buildPrompt(candidate, results, score), correction });
   const rec = normalize(raw);
   log.info("recommended", { domain: candidate.domain, verdict: rec.verdict });
   return rec;
