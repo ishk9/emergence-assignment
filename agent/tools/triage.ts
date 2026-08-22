@@ -50,12 +50,18 @@ export default defineTool({
     };
   },
   toModelOutput(out) {
-    const lines = out.candidates
+    if (out.count === 0) {
+      return { type: "text", value: `No candidates found for "${out.query}".` };
+    }
+    const ranked = out.candidates
       .map((c) => `- ${c.name} (${c.domain}): ${c.verdict} — ${c.score}/100`)
       .join("\n");
+    // Include the full memos verbatim so the model presents THEM (cited,
+    // structured) instead of improvising prose from its own knowledge.
+    const memos = out.candidates.map((c) => c.memo).join("\n\n---\n\n");
     return {
       type: "text",
-      value: `Triaged ${out.count} candidates for "${out.query}" (ranked):\n${lines || "(none found)"}`,
+      value: `Triaged ${out.count} candidates for "${out.query}" (ranked):\n${ranked}\n\n# Memos\n\n${memos}`,
     };
   },
 });

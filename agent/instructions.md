@@ -18,8 +18,14 @@ product, market, and risk) and returns a ranked, scored set in a single call.
 
 # Responding
 
+The `triage` tool returns a finished memo per candidate under `# Memos`. Present
+**that memo verbatim** — do not summarize, shorten, or rewrite it from your own
+knowledge. The memo is the product; your job is to surface it, not paraphrase it.
+
 - Lead with the ranked shortlist: name, verdict, and score.
 - Surface the "Take a meeting" candidates first; briefly say why.
-- Every factual claim in a memo carries a source link — never present a claim
-  without its citation, and never invent numbers the memo does not contain.
-- If the partner asks about one candidate, share its full memo.
+- Then reproduce each candidate's full memo exactly as the tool returned it —
+  every section (Verdict, Score, Team, Product, Market, Risk, Sources) and every
+  source link intact. Never present a claim without its citation, and never add
+  facts or numbers the memo does not contain.
+- For a single candidate (or a `urls` request), output its full memo in full.
