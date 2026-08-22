@@ -41,7 +41,7 @@ test("weights sum to 1", () => {
 test("a strong startup scores high", () => {
   const s = new WeightedScorer().score(candidate(50000), results(), NOW);
   assert.ok(s.total >= 85, `expected high, got ${s.total}`);
-  assert.equal(s.weightsVersion, "v1");
+  assert.equal(s.weightsVersion, "balanced"); // default profile name
   assert.match(s.explanation, /→ .*\/100/);
 });
 

@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { buildPrompt, normalize, recommend, type RunRecommend } from "./recommend.ts";
+import { loadProfile } from "../scoring/profiles.ts";
 import type { Candidate, DimensionResult, Score } from "../types.ts";
 
 const candidate: Candidate = {
@@ -46,7 +47,13 @@ test("recommend returns a validated Recommendation via injected run", async () =
     assert.match(prompt, /Acme/);
     return { verdict: "Meeting", rationale: "Strong team and traction.", counterPoints: ["a", "b", "c"] };
   };
-  const rec = await recommend(candidate, results, score, run);
+  const rec = await recommend(candidate, results, score, loadProfile("balanced"), run);
   assert.equal(rec.verdict, "Meeting");
   assert.equal(rec.counterPoints.length, 3);
+});
+
+test("the profile's thesis + risk appetite reach the verdict prompt", () => {
+  const p = buildPrompt(candidate, results, score, loadProfile("conservative"));
+  assert.match(p, /PARTNER THESIS \(conservative\)/);
+  assert.match(p, /RISK APPETITE: low/);
 });

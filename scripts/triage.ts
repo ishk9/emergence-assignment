@@ -13,22 +13,27 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { runTriage } from "../agent/lib/pipeline/triage.ts";
 import { candidatesFromUrls } from "../agent/lib/sources/urls.ts";
+import { loadProfile } from "../agent/lib/scoring/profiles.ts";
 
 const argv = process.argv.slice(2);
 const urls: string[] = [];
 let limit: number | undefined;
+let profileName: string | undefined;
 const words: string[] = [];
 for (let i = 0; i < argv.length; i++) {
   if (argv[i] === "--urls") while (argv[i + 1] && !argv[i + 1].startsWith("--")) urls.push(argv[++i]);
   else if (argv[i] === "--limit") limit = Number(argv[++i]);
+  else if (argv[i] === "--profile") profileName = argv[++i];
   else words.push(argv[i]);
 }
 const query = words.join(" ");
+const profile = loadProfile(profileName);
+console.log(`profile: ${profile.name} (risk ${profile.riskAppetite})`);
 
 const results =
   urls.length > 0
-    ? await runTriage("", { candidates: candidatesFromUrls(urls, new Date().toISOString()), limit: limit ?? urls.length })
-    : await runTriage(query, { limit });
+    ? await runTriage("", { candidates: candidatesFromUrls(urls, new Date().toISOString()), limit: limit ?? urls.length, profile })
+    : await runTriage(query, { limit, profile });
 
 mkdirSync("memos", { recursive: true });
 const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");

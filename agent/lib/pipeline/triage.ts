@@ -15,7 +15,8 @@ import { mergeCandidates } from "../normalize.ts";
 import { enrichAll } from "../enrich/index.ts";
 import { analyzeCandidate } from "../analysis/analyze.ts";
 import { recommend, type RunRecommend } from "../recommend/recommend.ts";
-import { defaultScorer, type Scorer } from "../scoring/index.ts";
+import { WeightedScorer, type Scorer } from "../scoring/index.ts";
+import { BALANCED, type ThesisProfile } from "../scoring/profiles.ts";
 import { renderMemo } from "../memo/render.ts";
 import { withCorrectiveRetry } from "../retry/withCorrectiveRetry.ts";
 
@@ -35,6 +36,8 @@ export interface TriageDeps {
   analyze?: (candidate: Candidate) => Promise<DimensionResult[]>;
   recommendRun?: RunRecommend;
   scorer?: Scorer;
+  /** Per-partner thesis profile driving the score weights + verdict framing. */
+  profile?: ThesisProfile;
   /** Skip sourcing and triage these candidates directly (e.g. pasted URLs). */
   candidates?: Candidate[];
   /** Candidates after dedup (target 10-20). */
@@ -80,11 +83,12 @@ async function recommendWithRetry(
   candidate: Candidate,
   analysis: DimensionResult[],
   score: Score,
+  profile: ThesisProfile,
   run: RunRecommend | undefined,
   sleep?: (ms: number) => Promise<void>,
 ): Promise<Recommendation> {
   return withCorrectiveRetry<Recommendation>(
-    (correction) => recommend(candidate, analysis, score, run, correction),
+    (correction) => recommend(candidate, analysis, score, profile, run, correction),
     {
       label: `recommend:${candidate.domain}`,
       maxAttempts: 2,
@@ -111,7 +115,8 @@ function degradedAnalysis(): DimensionResult[] {
 /** Analyze -> score -> recommend -> memo for one candidate. */
 async function triageOne(candidate: Candidate, deps: TriageDeps): Promise<TriageResult> {
   const nowMs = deps.nowMs ?? Date.now();
-  const scorer = deps.scorer ?? defaultScorer;
+  const profile = deps.profile ?? BALANCED;
+  const scorer = deps.scorer ?? new WeightedScorer(profile);
   const analyze = deps.analyze ?? ((c: Candidate) => analyzeCandidate(c, { sleep: deps.sleep }));
 
   let analysis: DimensionResult[];
@@ -122,7 +127,7 @@ async function triageOne(candidate: Candidate, deps: TriageDeps): Promise<Triage
     analysis = degradedAnalysis();
   }
   const score = scorer.score(candidate, analysis, nowMs);
-  const recommendation = await recommendWithRetry(candidate, analysis, score, deps.recommendRun, deps.sleep);
+  const recommendation = await recommendWithRetry(candidate, analysis, score, profile, deps.recommendRun, deps.sleep);
   const memo = renderMemo({ candidate, results: analysis, score, recommendation });
   return { candidate, analysis, score, recommendation, memo };
 }

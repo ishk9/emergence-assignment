@@ -9,6 +9,7 @@ import { defineTool } from "eve/tools";
 import { z } from "zod";
 import { runTriage } from "../lib/pipeline/triage.ts";
 import { candidatesFromUrls } from "../lib/sources/urls.ts";
+import { loadProfile, listProfiles } from "../lib/scoring/profiles.ts";
 import { createLogger } from "../lib/logger.ts";
 
 const log = createLogger("triage-tool");
@@ -49,15 +50,28 @@ export default defineTool({
       .optional()
       .describe("Optional list of company URLs to triage directly instead of sourcing."),
     limit: z.number().int().min(1).max(20).optional().describe("Max candidates to triage (default 15)"),
+    profile: z
+      .string()
+      .optional()
+      .describe(
+        "Optional thesis profile name driving the score + verdict (e.g. 'conservative', 'aggressive', or a custom one). Omit for 'balanced'. Does NOT change the analysis.",
+      ),
   }),
-  async execute({ query, urls, limit }) {
+  async execute({ query, urls, limit, profile }) {
+    let thesis;
+    try {
+      thesis = loadProfile(profile);
+    } catch (err) {
+      return { error: String((err as { message?: string }).message ?? err), available: listProfiles() };
+    }
     const results =
       urls && urls.length > 0
         ? await runTriage("", {
             candidates: candidatesFromUrls(urls, new Date().toISOString()),
             limit: limit ?? urls.length,
+            profile: thesis,
           })
-        : await runTriage(query ?? "", { limit });
+        : await runTriage(query ?? "", { limit, profile: thesis });
 
     const candidates = results.map((r) => ({
       name: r.candidate.name,
@@ -72,13 +86,17 @@ export default defineTool({
 
     return {
       query: query ?? (urls?.length ? `${urls.length} url(s)` : "latest batch"),
+      profile: thesis.name,
       count: results.length,
       savedTo: saved,
       candidates,
     };
   },
   toModelOutput(out) {
-    if (out.count === 0) {
+    if ("error" in out && out.error) {
+      return { type: "text", value: `Triage error: ${out.error}\nAvailable profiles: ${(out.available ?? []).join(", ")}` };
+    }
+    if (!out.count || !out.candidates) {
       return { type: "text", value: `No candidates found for "${out.query}".` };
     }
     const ranked = out.candidates
@@ -92,7 +110,7 @@ export default defineTool({
       : "";
     return {
       type: "text",
-      value: `Triaged ${out.count} candidates for "${out.query}" (ranked):\n${ranked}${saved}\n\n# Memos\n\n${memos}`,
+      value: `Triaged ${out.count} candidates for "${out.query}" using the "${out.profile}" thesis profile (ranked):\n${ranked}${saved}\n\n# Memos\n\n${memos}`,
     };
   },
 });

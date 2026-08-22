@@ -7,7 +7,7 @@
 import type { Candidate, DimensionResult, Score } from "../types.ts";
 import { createLogger } from "../logger.ts";
 import { extractSubscores, type Subscores } from "./features.ts";
-import { WEIGHTS_V1, type WeightSet } from "./weights.ts";
+import { BALANCED, type ThesisProfile } from "./profiles.ts";
 
 const log = createLogger("scoring");
 
@@ -21,15 +21,15 @@ const to100 = (n: number) => round1(n * 100);
 const LABELS: (keyof Subscores)[] = ["team", "product", "market", "risk", "freshness"];
 
 export class WeightedScorer implements Scorer {
-  private readonly weightSet: WeightSet;
+  private readonly profile: ThesisProfile;
 
-  constructor(weightSet: WeightSet = WEIGHTS_V1) {
-    this.weightSet = weightSet;
+  constructor(profile: ThesisProfile = BALANCED) {
+    this.profile = profile;
   }
 
   score(candidate: Candidate, results: DimensionResult[], nowMs: number): Score {
     const sub = extractSubscores(results, candidate, nowMs);
-    const w = this.weightSet.weights;
+    const w = this.profile.weights;
 
     const total = to100(
       LABELS.reduce((sum, k) => sum + sub[k] * w[k], 0),
@@ -44,11 +44,11 @@ export class WeightedScorer implements Scorer {
     };
 
     const explanation =
-      LABELS.map((k) => `${k} ${subscores[k]}×${w[k]}`).join(", ") +
-      ` → ${total}/100 (weights ${this.weightSet.version})`;
+      LABELS.map((k) => `${k} ${subscores[k]}×${round1(w[k] * 100) / 100}`).join(", ") +
+      ` → ${total}/100 (profile ${this.profile.name})`;
 
-    log.info("scored", { domain: candidate.domain, total, version: this.weightSet.version });
-    return { total, subscores, weightsVersion: this.weightSet.version, explanation };
+    log.info("scored", { domain: candidate.domain, total, profile: this.profile.name });
+    return { total, subscores, weightsVersion: this.profile.name, explanation };
   }
 }
 

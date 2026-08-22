@@ -11,15 +11,20 @@ import { z } from "zod";
 import { Recommendation, type Candidate, type DimensionResult, type Score } from "../types.ts";
 import { createLogger } from "../logger.ts";
 import { resolveModel } from "../llm/provider.ts";
+import { BALANCED, type ThesisProfile } from "../scoring/profiles.ts";
 
 const log = createLogger("recommend");
 
-const SYSTEM = `You are a venture-capital partner making a triage decision.
+const SYSTEM = `You are a venture-capital partner making a triage decision for a
+SPECIFIC investment thesis, provided in the prompt. Judge the startup THROUGH
+that thesis and the stated risk appetite:
+- low appetite  -> demand more de-risking; when in doubt, hold back (Pass/Watch).
+- high appetite -> advance promising bets despite unknowns (lean Watch/Meeting).
 Output:
 - verdict: one of "Pass", "Watch", "Meeting".
-- rationale: 2-4 sentences grounded in the provided analysis and score.
+- rationale: 2-4 sentences grounded in the analysis, the score, and the thesis.
 - counterPoints: 3 to 4 points that might CHANGE your mind (steelman the opposite of your verdict — what would make you wrong).
-Score guidance: >=70 lean "Meeting", 45-69 "Watch", <45 "Pass". You may deviate with a stated reason.
+Use the score as a signal, not a rule: ~>=70 leans "Meeting", 45-69 "Watch", <45 "Pass" — but shift these bands to match the thesis fit and risk appetite, and state your reason when you do.
 Ground every claim in the provided analysis; do not invent facts.`;
 
 /** Loose generation schema; counter-point count is clamped after. */
@@ -40,6 +45,7 @@ export function buildPrompt(
   candidate: Candidate,
   results: DimensionResult[],
   score: Score,
+  profile: ThesisProfile = BALANCED,
 ): string {
   const dims = results
     .map((r) => {
@@ -48,10 +54,13 @@ export function buildPrompt(
     })
     .join("\n\n");
 
-  return `Startup: ${candidate.name} (${candidate.website})
+  return `PARTNER THESIS (${profile.name}): ${profile.description || "(none stated)"}
+RISK APPETITE: ${profile.riskAppetite}
+
+Startup: ${candidate.name} (${candidate.website})
 One-liner: ${candidate.oneLiner || "(none)"}
 
-SCORE: ${score.total}/100
+SCORE (weighted by this thesis): ${score.total}/100
 Breakdown: ${score.explanation}
 
 ANALYSIS:
@@ -83,11 +92,12 @@ export async function recommend(
   candidate: Candidate,
   results: DimensionResult[],
   score: Score,
+  profile: ThesisProfile = BALANCED,
   run: RunRecommend = defaultRun,
   correction: string | null = null,
 ): Promise<Recommendation> {
-  log.info("recommending", { domain: candidate.domain, score: score.total });
-  const raw = await run({ system: SYSTEM, prompt: buildPrompt(candidate, results, score), correction });
+  log.info("recommending", { domain: candidate.domain, score: score.total, profile: profile.name });
+  const raw = await run({ system: SYSTEM, prompt: buildPrompt(candidate, results, score, profile), correction });
   const rec = normalize(raw);
   log.info("recommended", { domain: candidate.domain, verdict: rec.verdict });
   return rec;
