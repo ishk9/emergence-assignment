@@ -14,7 +14,9 @@
     "test": "node --test \"agent/**/*.test.ts\""
   },
   "dependencies": {
+    "@ai-sdk/amazon-bedrock": "^5.0.61",
     "@ai-sdk/anthropic": "^4.0.40",
+    "@aws-sdk/credential-providers": "^3.1116.0",
     "@vercel/connect": "0.4.3",
     "ai": "^7.0.58",
     "eve": "^0.44.0",

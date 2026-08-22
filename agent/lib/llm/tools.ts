@@ -7,7 +7,7 @@
  * fetching the candidate's known source URLs. A search key unlocks open-web
  * discovery. Add a backend = one case in `runSearch` + its response mapper.
  */
-import { tool } from "ai";
+import { tool, type ToolSet } from "ai";
 import { z } from "zod";
 import { createLogger } from "../logger.ts";
 import type { LlmConfig } from "./provider.ts";
@@ -158,13 +158,15 @@ export const researchTools = { web_fetch: webFetchTool, web_search: webSearchToo
  * side via ANTHROPIC_API_KEY; web search must be enabled in the Anthropic
  * Console). Every other provider uses the pluggable tools above.
  */
-export async function researchToolsFor(config: LlmConfig) {
+export async function researchToolsFor(config: LlmConfig): Promise<ToolSet> {
   if (config.provider === "anthropic") {
     const { anthropic } = await import("@ai-sdk/anthropic");
+    // Anthropic's server-side tools are ProviderExecutedTools; they run fine but
+    // don't structurally match the ToolSet index signature, so widen here.
     return {
       web_search: anthropic.tools.webSearch_20250305({ maxUses: 3 }),
       web_fetch: anthropic.tools.webFetch_20250910({ maxUses: 3 }),
-    };
+    } as ToolSet;
   }
   return researchTools;
 }

@@ -80,8 +80,23 @@ export async function resolveModel(config: LlmConfig = loadLlmConfig()): Promise
       return (mod.anthropic as (id: string) => LanguageModel)(config.model);
     }
     case "bedrock": {
+      // Bedrock's default provider only reads AWS_ACCESS_KEY_ID/SECRET from env.
+      // Wire the full AWS credential chain so a named profile (AWS_PROFILE),
+      // SSO, or instance role works — the same way every other AWS tool resolves
+      // credentials. Region comes from AWS_REGION/AWS_DEFAULT_REGION.
       const mod = await importProvider("@ai-sdk/amazon-bedrock");
-      return (mod.amazonBedrock as (id: string) => LanguageModel)(config.model);
+      const { fromNodeProviderChain } = await importProvider("@aws-sdk/credential-providers");
+      const createAmazonBedrock = mod.createAmazonBedrock as (opts: {
+        region?: string;
+        credentialProvider?: unknown;
+      }) => (id: string) => LanguageModel;
+      const region = process.env.AWS_REGION ?? process.env.AWS_DEFAULT_REGION;
+      const bedrock = createAmazonBedrock({
+        region,
+        credentialProvider: (fromNodeProviderChain as (opts?: unknown) => unknown)(),
+      });
+      log.info("bedrock configured", { region, profile: process.env.AWS_PROFILE ?? "(chain default)" });
+      return bedrock(config.model);
     }
     default: {
       const exhaustive: never = config.provider;

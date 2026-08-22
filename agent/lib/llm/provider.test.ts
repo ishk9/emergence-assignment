@@ -32,10 +32,13 @@ test("resolveModel builds an Anthropic model instance (package installed)", asyn
   assert.notEqual(typeof model, "string"); // a LanguageModel object, not a gateway string
 });
 
-test("resolveModel gives an actionable error for a missing provider package", async () => {
-  // @ai-sdk/amazon-bedrock is not installed in this project.
-  await assert.rejects(
-    () => resolveModel({ provider: "bedrock", model: "anthropic.claude-3-sonnet" }),
-    /is not installed. Run: npm install @ai-sdk\/amazon-bedrock/,
-  );
+test("resolveModel builds a Bedrock model instance (lazy creds — no AWS call yet)", async () => {
+  // Construction only wires the credential chain; credentials resolve at invoke
+  // time, so this returns a model object without any AWS auth.
+  const model = await resolveModel({
+    provider: "bedrock",
+    model: "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+  });
+  assert.ok(model, "returns a model");
+  assert.notEqual(typeof model, "string");
 });
