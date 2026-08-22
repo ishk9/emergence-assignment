@@ -9,6 +9,7 @@
  * `research` and `extract` are injectable so the logic is unit-tested without a
  * model or network.
  */
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { generateText, Output, stepCountIs } from "ai";
 import { z } from "zod";
 import { Claim, DimensionResult, type Candidate, type Dimension } from "../types.ts";
@@ -20,10 +21,35 @@ import { buildContext, extractionPrompt, extractionSystem, researchSystem } from
 
 const log = createLogger("analysis");
 
-/** Max tool-calling steps in the single research pass (bounds cost). Set to fit
- *  one targeted lookup per founder plus the four dimensions; raising it raises
- *  cost per query (the tradeoff against per-founder depth). */
-const RESEARCH_STEPS = 10;
+/** Max tool-calling steps in the single research pass (bounds cost). ~5 fits a
+ *  few founder lookups without runaway crawl cost; override with RESEARCH_STEPS
+ *  env when you want more depth (raises cost). */
+const RESEARCH_STEPS = Number(process.env.RESEARCH_STEPS ?? 5);
+
+/** Disk cache for the (expensive) research pass, keyed by domain, so re-running
+ *  the same company doesn't re-crawl/re-bill. Clear with `rm -rf .cache/research`
+ *  or set NO_RESEARCH_CACHE=1 to bypass. */
+const RESEARCH_CACHE_DIR = ".cache/research";
+const cacheKey = (domain: string) => domain.toLowerCase().replace(/[^a-z0-9]+/g, "_");
+
+function readResearchCache(domain: string): ResearchResult | null {
+  if (process.env.NO_RESEARCH_CACHE) return null;
+  try {
+    return JSON.parse(readFileSync(`${RESEARCH_CACHE_DIR}/${cacheKey(domain)}.json`, "utf8")) as ResearchResult;
+  } catch {
+    return null;
+  }
+}
+
+function writeResearchCache(domain: string, result: ResearchResult): void {
+  if (process.env.NO_RESEARCH_CACHE) return;
+  try {
+    mkdirSync(RESEARCH_CACHE_DIR, { recursive: true });
+    writeFileSync(`${RESEARCH_CACHE_DIR}/${cacheKey(domain)}.json`, JSON.stringify(result));
+  } catch (err) {
+    log.warn("research cache write failed", { domain, err: String(err) });
+  }
+}
 
 /** Model used for the web-research pass when it runs on Anthropic native search. */
 const RESEARCH_MODEL = "claude-sonnet-4-5";
@@ -114,6 +140,11 @@ export interface AnalyzeDeps {
 const DIMENSIONS: readonly Dimension[] = ["team", "product", "market", "risk"];
 
 const defaultResearch: ResearchFn = async (candidate) => {
+  const cached = readResearchCache(candidate.domain);
+  if (cached) {
+    log.info("research cache hit", { domain: candidate.domain });
+    return cached;
+  }
   const config = researchConfig(loadLlmConfig());
   const model = await resolveModel(config);
   const tools = await researchToolsFor(config);
@@ -127,7 +158,9 @@ const defaultResearch: ResearchFn = async (candidate) => {
   const sources = (res.sources ?? [])
     .map((s) => (s as { url?: string }).url)
     .filter((u): u is string => Boolean(u));
-  return { notes: res.text, sources };
+  const result = { notes: res.text, sources };
+  writeResearchCache(candidate.domain, result);
+  return result;
 };
 
 const defaultExtract: ExtractFn = async ({ candidate, notes, sources, correction }) => {

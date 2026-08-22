@@ -164,8 +164,8 @@ export async function researchToolsFor(config: LlmConfig): Promise<ToolSet> {
     // Anthropic's server-side tools are ProviderExecutedTools; they run fine but
     // don't structurally match the ToolSet index signature, so widen here.
     return {
-      web_search: anthropic.tools.webSearch_20250305({ maxUses: 3 }),
-      web_fetch: anthropic.tools.webFetch_20250910({ maxUses: 3 }),
+      web_search: anthropic.tools.webSearch_20250305({ maxUses: 2 }),
+      web_fetch: anthropic.tools.webFetch_20250910({ maxUses: 2 }),
     } as ToolSet;
   }
   return researchTools;

@@ -1,0 +1,6 @@
+{
+  "name": "ai-high-risk",
+  "description": "AI-first thesis. Back technical teams building at the AI frontier (models, agents, AI infra/devtools) with a real technical edge. High risk appetite: chase upside, tolerate unproven markets, unknown moats, and early-stage messiness.",
+  "weights": { "team": 4, "product": 4, "market": 2, "risk": 1, "freshness": 3 },
+  "riskAppetite": "high"
+}
