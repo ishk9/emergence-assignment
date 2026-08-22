@@ -1,11 +1,13 @@
 /**
- * Analysis node: research one dimension of a candidate with a web-research loop
- * and return a validated, cited DimensionResult. Runs the four dimensions in
- * parallel.
+ * Analysis: ONE web-research pass per company, then a single structured
+ * extraction into all four dimensions. This replaces the old four-loops-per-
+ * company design that made each query ~4x more expensive and threw "could not
+ * parse" errors (structured output forced inside the tool loop). Now the
+ * expensive research runs once; the cheap generateObject extraction is what the
+ * self-correcting retry wraps, so a retry costs pennies, not another web crawl.
  *
- * The `run` step (the actual generateText call) is injectable so the
- * wrapping/validation logic is unit-tested without a model or network; the
- * default implementation resolves the pluggable provider and drives the loop.
+ * `research` and `extract` are injectable so the logic is unit-tested without a
+ * model or network.
  */
 import { generateText, Output, stepCountIs } from "ai";
 import { z } from "zod";
@@ -13,89 +15,175 @@ import { Claim, DimensionResult, type Candidate, type Dimension } from "../types
 import { createLogger } from "../logger.ts";
 import { loadLlmConfig, resolveModel } from "../llm/provider.ts";
 import { researchToolsFor } from "../llm/tools.ts";
-import { buildContext, systemPrompt } from "./prompts.ts";
+import { withCorrectiveRetry } from "../retry/withCorrectiveRetry.ts";
+import { buildContext, extractionPrompt, extractionSystem, researchSystem } from "./prompts.ts";
 
 const log = createLogger("analysis");
 
-const ALL_DIMENSIONS: readonly Dimension[] = ["team", "product", "market", "risk"];
+/** Max tool-calling steps in the single research pass (bounds cost). */
+const RESEARCH_STEPS = 6;
 
-/** Permissive model-output schema. Claim URLs are validated (strictly) after,
- *  so a single bad citation is dropped rather than failing the whole call. */
-const AnalysisOutput = z.object({
-  findings: z.string(),
-  claims: z.array(
-    z.object({
-      text: z.string(),
-      sourceUrl: z.string(),
-      confidence: z.enum(["low", "med", "high"]),
+const conf = z.enum(["low", "med", "high"]);
+
+const ClaimBlock = z.array(
+  z.object({ text: z.string(), sourceUrl: z.string(), confidence: conf }),
+);
+
+/** Required per-dimension features force the model to fill the numbers the
+ *  (LLM-free) scorer consumes — fixing the old empty-features scoring. */
+const ExtractionSchema = z.object({
+  team: z.object({
+    findings: z.string(),
+    claims: ClaimBlock,
+    features: z.object({
+      priorExits: z.number(),
+      technicalDepth: conf,
+      founderMarketFit: conf,
     }),
-  ),
-  features: z.record(z.string(), z.union([z.number(), z.string()])),
+  }),
+  product: z.object({
+    findings: z.string(),
+    claims: ClaimBlock,
+    features: z.object({
+      differentiation: conf,
+      technicalMoat: conf,
+      stage: z.enum(["idea", "beta", "launched", "scaling"]),
+    }),
+  }),
+  market: z.object({
+    findings: z.string(),
+    claims: ClaimBlock,
+    features: z.object({
+      marketSize: z.enum(["small", "medium", "large", "unknown"]),
+      competition: conf,
+      timing: z.enum(["poor", "fair", "strong"]),
+    }),
+  }),
+  risk: z.object({
+    findings: z.string(),
+    claims: ClaimBlock,
+    features: z.object({ overallRisk: conf, mainRisk: z.string() }),
+  }),
 });
-export type AnalysisOutput = z.infer<typeof AnalysisOutput>;
+export type Extraction = z.infer<typeof ExtractionSchema>;
 
-/** The injectable research step: system + context (+ optional corrective note
- *  from the retry layer) -> raw analysis output. */
-export type RunAnalysis = (input: {
-  system: string;
-  context: string;
+export interface ResearchResult {
+  notes: string;
+  sources: string[];
+}
+
+export type ResearchFn = (candidate: Candidate) => Promise<ResearchResult>;
+export type ExtractFn = (input: {
+  candidate: Candidate;
+  notes: string;
+  sources: string[];
   correction?: string | null;
-}) => Promise<AnalysisOutput>;
+}) => Promise<Extraction>;
 
-/** How many tool-calling steps the research loop may take per dimension. */
-const MAX_STEPS = 8;
+export interface AnalyzeDeps {
+  research?: ResearchFn;
+  extract?: ExtractFn;
+  sleep?: (ms: number) => Promise<void>;
+}
 
-const defaultRun: RunAnalysis = async ({ system, context, correction }) => {
+const DIMENSIONS: readonly Dimension[] = ["team", "product", "market", "risk"];
+
+const defaultResearch: ResearchFn = async (candidate) => {
   const config = loadLlmConfig();
   const model = await resolveModel(config);
   const tools = await researchToolsFor(config);
-  const prompt = correction ? `${context}\n\n[CORRECTION]\n${correction}` : context;
+  const res = await generateText({
+    model,
+    tools,
+    stopWhen: stepCountIs(RESEARCH_STEPS),
+    system: researchSystem(),
+    prompt: buildContext(candidate),
+  });
+  const sources = (res.sources ?? [])
+    .map((s) => (s as { url?: string }).url)
+    .filter((u): u is string => Boolean(u));
+  return { notes: res.text, sources };
+};
+
+const defaultExtract: ExtractFn = async ({ candidate, notes, sources, correction }) => {
+  const config = loadLlmConfig();
+  const model = await resolveModel(config);
+  const prompt =
+    extractionPrompt(candidate, notes, sources) +
+    (correction ? `\n\n[CORRECTION]\n${correction}` : "");
+  // No tools here — a single-shot structured completion is reliable and cheap.
   const { output } = await generateText({
     model,
-    system,
+    system: extractionSystem(),
     prompt,
-    tools,
-    stopWhen: stepCountIs(MAX_STEPS),
-    output: Output.object({ schema: AnalysisOutput }),
+    output: Output.object({ schema: ExtractionSchema }),
   });
   return output;
 };
 
-/** Wrap raw model output into a validated DimensionResult, dropping any claim
- *  that lacks a valid (URL-bearing) citation. Provenance enforced here. */
-export function toDimensionResult(dimension: Dimension, output: AnalysisOutput): DimensionResult {
-  const claims = output.claims.filter((c) => Claim.safeParse(c).success);
-  const dropped = output.claims.length - claims.length;
+/** Build a validated DimensionResult from one extraction block, dropping any
+ *  claim without a valid (URL-bearing) citation. */
+export function toDimensionResult(
+  dimension: Dimension,
+  block: Extraction[Dimension],
+): DimensionResult {
+  const claims = block.claims.filter((c) => Claim.safeParse(c).success);
+  const dropped = block.claims.length - claims.length;
   if (dropped > 0) log.warn("dropped uncited claims", { dimension, dropped });
   return DimensionResult.parse({
     dimension,
-    findings: output.findings,
+    findings: block.findings,
     claims,
-    features: output.features,
+    features: block.features,
   });
 }
 
-export async function analyzeDimension(
-  candidate: Candidate,
-  dimension: Dimension,
-  run: RunAnalysis = defaultRun,
-  correction: string | null = null,
-): Promise<DimensionResult> {
-  log.info("analyzing", { domain: candidate.domain, dimension });
-  const output = await run({
-    system: systemPrompt(dimension),
-    context: buildContext(candidate),
-    correction,
-  });
-  const result = toDimensionResult(dimension, output);
-  log.info("analyzed", { domain: candidate.domain, dimension, claims: result.claims.length });
-  return result;
+/** Neutral fallback when extraction can't be produced — keeps the pipeline
+ *  running; scores land mid-range and the memo shows no findings. */
+function degradedExtraction(): Extraction {
+  const na = "Analysis unavailable (extraction failed).";
+  return {
+    team: { findings: na, claims: [], features: { priorExits: 0, technicalDepth: "med", founderMarketFit: "med" } },
+    product: { findings: na, claims: [], features: { differentiation: "med", technicalMoat: "med", stage: "beta" } },
+    market: { findings: na, claims: [], features: { marketSize: "unknown", competition: "med", timing: "fair" } },
+    risk: { findings: na, claims: [], features: { overallRisk: "med", mainRisk: "unknown" } },
+  };
 }
 
-/** Run all four dimensions in parallel for one candidate. */
+/** Research once, extract all four dimensions, return four DimensionResults. */
 export async function analyzeCandidate(
   candidate: Candidate,
-  run: RunAnalysis = defaultRun,
+  deps: AnalyzeDeps = {},
 ): Promise<DimensionResult[]> {
-  return Promise.all(ALL_DIMENSIONS.map((d) => analyzeDimension(candidate, d, run)));
+  const research = deps.research ?? defaultResearch;
+  const extract = deps.extract ?? defaultExtract;
+
+  log.info("researching", { domain: candidate.domain });
+  let researched: ResearchResult;
+  try {
+    researched = await research(candidate);
+  } catch (err) {
+    log.warn("research failed", { domain: candidate.domain, err: String(err) });
+    researched = { notes: "", sources: candidate.sources.map((s) => s.url) };
+  }
+
+  const extraction = await withCorrectiveRetry<Extraction>(
+    (correction) =>
+      extract({ candidate, notes: researched.notes, sources: researched.sources, correction }),
+    {
+      label: `extract:${candidate.domain}`,
+      maxAttempts: 2,
+      sleep: deps.sleep,
+      validate: (x) =>
+        x?.team?.findings?.trim() ? { ok: true } : { ok: false, reason: "missing dimension findings" },
+      onExhausted: () => degradedExtraction(),
+    },
+  );
+
+  const results = DIMENSIONS.map((d) => toDimensionResult(d, extraction[d]));
+  log.info("analyzed", {
+    domain: candidate.domain,
+    claims: results.reduce((n, r) => n + r.claims.length, 0),
+  });
+  return results;
 }

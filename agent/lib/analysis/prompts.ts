@@ -1,36 +1,38 @@
 /**
- * Per-dimension analyst prompts. Each dimension is researched independently by
- * a web-research loop. Prompts enforce the provenance rule (cite only fetched/
- * searched URLs; omit or low-confidence anything uncitable — never invent
- * numbers) and ask for the structured `features` the algorithmic scorer reads.
+ * Prompts for the two-stage analysis: ONE web-research pass per company, then a
+ * cheap structured extraction into all four dimensions. Splitting research
+ * (expensive, tool-driven) from extraction (a plain generateObject) is what
+ * keeps cost down and eliminates the "could not parse" failures that came from
+ * forcing structured output inside the tool loop.
  */
-import type { Candidate, Dimension } from "../types.ts";
+import type { Candidate } from "../types.ts";
 
-const PROVENANCE = `
-Rules:
-- Use web_search and web_fetch to research. Start by fetching the known source URLs.
-- Every claim MUST include a sourceUrl you actually fetched or that web_search returned. If you cannot find and cite a fact, omit it or mark it low confidence. NEVER invent numbers (market size, funding, headcount) — cite them or leave them out.
-- Keep findings concise and specific to this startup.`.trim();
+/** System prompt for the single research pass. */
+export function researchSystem(): string {
+  return `You are a venture-capital analyst researching one startup for a triage memo.
+Use web_search and web_fetch to gather facts about the company across four areas:
+- TEAM: founders, backgrounds, prior exits, technical depth, founder-market fit.
+- PRODUCT: what it does, how it works, technology, differentiation, maturity.
+- MARKET: size, competitors, product-market fit, timing.
+- RISK: competition, execution, funding/economic exposure, defensibility.
 
-const DIMENSION_GUIDE: Record<Dimension, string> = {
-  team: `Assess the TEAM: founder backgrounds, prior exits, technical depth, founder-market fit, who does what and each member's strengths/weaknesses.
-Fill features with: priorExits (number), technicalDepth ("low"|"med"|"high"), founderMarketFit ("low"|"med"|"high").`,
-  product: `Assess the PRODUCT: what it actually does, how it works, the technology used, differentiation, any technical moat, and maturity stage.
-Fill features with: differentiation ("low"|"med"|"high"), technicalMoat ("low"|"med"|"high"), stage ("idea"|"beta"|"launched"|"scaling").`,
-  market: `Assess the MARKET: market size (cite sources or say unknown), existing players and their share, product-market fit signals, and timing.
-Fill features with: marketSize ("small"|"medium"|"large"|"unknown"), competition ("low"|"med"|"high"), timing ("poor"|"fair"|"strong").`,
-  risk: `Assess the RISKS: competition, what is hurting the product now, funding/economic/geopolitical exposure, execution and defensibility risks.
-Fill features with: overallRisk ("low"|"med"|"high"), mainRisk (short string).`,
-};
-
-export function systemPrompt(dimension: Dimension): string {
-  return `You are a venture-capital analyst producing the ${dimension.toUpperCase()} section of a triage memo.
-${DIMENSION_GUIDE[dimension]}
-
-${PROVENANCE}`;
+Be efficient: a few targeted searches are enough — do NOT exhaustively search.
+Write concise notes with the concrete facts you found and, inline, the URL each
+fact came from. Never invent numbers (funding, market size, headcount) — only
+report what you actually found and can attribute to a source.`;
 }
 
-/** The seed grounding + URLs the analyst should fetch first. */
+/** System prompt for the structured extraction (no tools). */
+export function extractionSystem(): string {
+  return `You convert research notes into a structured triage analysis. For each
+of team, product, market, and risk: write concise findings, list the cited
+claims (each with the sourceUrl it came from), and fill the required feature
+fields. Cite ONLY URLs that appear in the research notes or the provided source
+list. If a fact was not found, choose the most conservative feature value and
+omit the claim — never fabricate a citation or a number.`;
+}
+
+/** The seed grounding + known source URLs for the research pass. */
 export function buildContext(candidate: Candidate): string {
   const sources = candidate.sources.map((s) => `- ${s.source}: ${s.url}`).join("\n");
   const signals = candidate.freshness.map((f) => `- ${f.kind}: ${f.value} (${f.url})`).join("\n");
@@ -43,4 +45,16 @@ ${sources || "(none)"}
 
 Freshness / traction signals:
 ${signals || "(none)"}`;
+}
+
+/** Prompt for the extraction step: research notes + the URLs that may be cited. */
+export function extractionPrompt(candidate: Candidate, notes: string, sources: string[]): string {
+  const cite = sources.length ? sources.map((u) => `- ${u}`).join("\n") : "(only URLs appearing in the notes)";
+  return `Startup: ${candidate.name} (${candidate.website})
+
+Research notes:
+${notes || "(research produced no notes — use only the known source URLs, keep confidence low)"}
+
+Citable source URLs:
+${cite}`;
 }

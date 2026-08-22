@@ -1,8 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { runTriage } from "./triage.ts";
-import type { Candidate, Source } from "../types.ts";
-import type { RunAnalysis } from "../analysis/analyze.ts";
+import type { Candidate, DimensionResult, Source } from "../types.ts";
 import type { RunRecommend } from "../recommend/recommend.ts";
 
 const noSleep = async () => {};
@@ -24,11 +23,12 @@ function fakeSource(cands: Candidate[]): Source {
   return { name: "hackernews", async fetch() { return cands; } };
 }
 
-const strongAnalysis: RunAnalysis = async () => ({
-  findings: "Solid.",
-  claims: [{ text: "fact", sourceUrl: "https://x.com/a", confidence: "high" }],
-  features: { technicalDepth: "high", differentiation: "high", marketSize: "large", overallRisk: "low" },
-});
+const strongAnalysis = async (): Promise<DimensionResult[]> => [
+  { dimension: "team", findings: "Solid.", claims: [], features: { technicalDepth: "high", founderMarketFit: "high", priorExits: 2 } },
+  { dimension: "product", findings: "Good.", claims: [], features: { differentiation: "high", technicalMoat: "high", stage: "scaling" } },
+  { dimension: "market", findings: "Big.", claims: [], features: { marketSize: "large", competition: "low", timing: "strong" } },
+  { dimension: "risk", findings: "Low.", claims: [], features: { overallRisk: "low" } },
+];
 
 const okRecommend: RunRecommend = async () => ({
   verdict: "Meeting",
@@ -39,13 +39,12 @@ const okRecommend: RunRecommend = async () => ({
 test("runs source -> analyze -> score -> recommend -> memo and sorts by score", async () => {
   const results = await runTriage("ai", {
     sources: [fakeSource([cand("high.com", 50000), cand("low.com", 5)])],
-    analysisRun: strongAnalysis,
+    analyze: strongAnalysis,
     recommendRun: okRecommend,
     nowMs: NOW_MS,
     nowIso: NOW_ISO,
     sleep: noSleep,
   });
-
   assert.equal(results.length, 2);
   assert.equal(results[0]!.candidate.domain, "high.com"); // higher freshness -> higher score
   assert.ok(results[0]!.score.total >= results[1]!.score.total);
@@ -54,11 +53,22 @@ test("runs source -> analyze -> score -> recommend -> memo and sorts by score", 
   assert.match(results[0]!.memo, /## Verdict: Meeting/);
 });
 
+test("triages pasted URL candidates directly (no sourcing)", async () => {
+  const results = await runTriage("", {
+    candidates: [cand("acme.com", 0), cand("beta.io", 0)],
+    analyze: strongAnalysis,
+    recommendRun: okRecommend,
+    nowMs: NOW_MS, nowIso: NOW_ISO, sleep: noSleep,
+  });
+  assert.equal(results.length, 2);
+  assert.deepEqual(results.map((r) => r.candidate.domain).sort(), ["acme.com", "beta.io"]);
+});
+
 test("a failing source degrades to empty, not a crash", async () => {
   const bad: Source = { name: "ycombinator", async fetch() { throw new Error("network down"); } };
   const results = await runTriage("ai", {
     sources: [bad, fakeSource([cand("ok.com", 100)])],
-    analysisRun: strongAnalysis,
+    analyze: strongAnalysis,
     recommendRun: okRecommend,
     nowMs: NOW_MS, nowIso: NOW_ISO, sleep: noSleep,
   });
@@ -66,11 +76,10 @@ test("a failing source degrades to empty, not a crash", async () => {
   assert.equal(results[0]!.candidate.domain, "ok.com");
 });
 
-test("analysis exhaustion degrades dimensions but still produces a memo", async () => {
-  const alwaysThrows: RunAnalysis = async () => { throw new Error("model exploded"); };
+test("analysis throwing degrades but still produces a memo", async () => {
   const results = await runTriage("ai", {
     sources: [fakeSource([cand("acme.com", 100)])],
-    analysisRun: alwaysThrows,
+    analyze: async () => { throw new Error("model exploded"); },
     recommendRun: okRecommend,
     nowMs: NOW_MS, nowIso: NOW_ISO, sleep: noSleep,
   });
@@ -80,31 +89,13 @@ test("analysis exhaustion degrades dimensions but still produces a memo", async 
 });
 
 test("recommendation exhaustion falls back to a score-based verdict", async () => {
-  const alwaysThrows: RunRecommend = async () => { throw new Error("model exploded"); };
   const results = await runTriage("ai", {
     sources: [fakeSource([cand("acme.com", 100)])],
-    analysisRun: strongAnalysis,
-    recommendRun: alwaysThrows,
+    analyze: strongAnalysis,
+    recommendRun: async () => { throw new Error("model exploded"); },
     nowMs: NOW_MS, nowIso: NOW_ISO, sleep: noSleep,
   });
   const rec = results[0]!.recommendation;
   assert.match(rec.rationale, /Score-based fallback/);
   assert.ok(rec.counterPoints.length >= 3);
-});
-
-test("corrective retry recovers after one bad analysis attempt", async () => {
-  let calls = 0;
-  const flaky: RunAnalysis = async ({ correction }) => {
-    calls++;
-    if (calls <= 4) return { findings: "", claims: [], features: {} }; // empty -> validation fail (4 dims x attempt1)
-    assert.ok(correction && /findings were empty/.test(correction));
-    return { findings: "recovered", claims: [], features: {} };
-  };
-  const results = await runTriage("ai", {
-    sources: [fakeSource([cand("acme.com", 100)])],
-    analysisRun: flaky,
-    recommendRun: okRecommend,
-    nowMs: NOW_MS, nowIso: NOW_ISO, sleep: noSleep,
-  });
-  assert.ok(results[0]!.analysis.some((d) => d.findings === "recovered"));
 });

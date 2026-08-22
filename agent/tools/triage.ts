@@ -1,31 +1,43 @@
 /**
- * Model-facing `triage` tool: runs the deterministic triage pipeline for a
- * topic and returns a scored Pass/Watch/Meeting memo per candidate. The model
- * sees a compact ranked summary; channels/clients get the full memos.
+ * Model-facing `triage` tool. Two ways to drive it:
+ *  - `query` (or nothing): source startups from HN + YC's latest batches.
+ *  - `urls`: triage the specific companies at those URLs (skip sourcing).
+ * Returns a scored Pass/Watch/Meeting recommendation + cited memo per candidate.
  */
 import { defineTool } from "eve/tools";
 import { z } from "zod";
 import { runTriage } from "../lib/pipeline/triage.ts";
+import { candidatesFromUrls } from "../lib/sources/urls.ts";
 
 export default defineTool({
   description:
-    "Source and triage promising startups from Hacker News and Y Combinator's latest batches. " +
-    "Returns a scored Pass/Watch/Meeting recommendation and a cited memo per candidate. " +
-    "This is a slow, expensive operation that researches each candidate across four dimensions — " +
-    "call it ONCE per request and wait; do not retry with different phrasings. " +
-    "Omit `query` to scan the latest batch broadly; pass `query` only to filter by a topic keyword " +
-    "(e.g. 'payments', 'devtools') that would appear in a company's name or description.",
+    "Source and triage promising startups from Hacker News and Y Combinator, OR triage specific " +
+    "companies you pass as URLs. Returns a scored Pass/Watch/Meeting recommendation and a cited " +
+    "memo per candidate. This is a slow, expensive operation — call it ONCE per request and wait; " +
+    "do not retry with different phrasings. Omit `query` to scan the latest batch broadly; pass " +
+    "`query` to filter by a topic keyword; pass `urls` to analyze specific companies directly.",
   inputSchema: z.object({
     query: z
       .string()
       .optional()
-      .describe("Optional topic keyword to filter by. Omit for the latest batch / a random sample."),
+      .describe("Optional topic keyword to filter sourced startups. Omit for the latest batch."),
+    urls: z
+      .array(z.string())
+      .optional()
+      .describe("Optional list of company URLs to triage directly instead of sourcing."),
     limit: z.number().int().min(1).max(20).optional().describe("Max candidates to triage (default 15)"),
   }),
-  async execute({ query, limit }) {
-    const results = await runTriage(query ?? "", { limit });
+  async execute({ query, urls, limit }) {
+    const results =
+      urls && urls.length > 0
+        ? await runTriage("", {
+            candidates: candidatesFromUrls(urls, new Date().toISOString()),
+            limit: limit ?? urls.length,
+          })
+        : await runTriage(query ?? "", { limit });
+
     return {
-      query,
+      query: query ?? (urls?.length ? `${urls.length} url(s)` : "latest batch"),
       count: results.length,
       candidates: results.map((r) => ({
         name: r.candidate.name,

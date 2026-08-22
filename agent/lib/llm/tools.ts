@@ -162,7 +162,7 @@ export async function researchToolsFor(config: LlmConfig) {
   if (config.provider === "anthropic") {
     const { anthropic } = await import("@ai-sdk/anthropic");
     return {
-      web_search: anthropic.tools.webSearch_20250305({ maxUses: 5 }),
+      web_search: anthropic.tools.webSearch_20250305({ maxUses: 3 }),
       web_fetch: anthropic.tools.webFetch_20250910({ maxUses: 3 }),
     };
   }

@@ -10,8 +10,9 @@
  */
 import { z } from "zod";
 
-/** Sources wired for v1. Adding a source = extend this + one new adapter. */
-export const SourceName = z.enum(["hackernews", "ycombinator"]);
+/** Sources wired for v1. "url" = a candidate supplied directly by the user.
+ *  Adding a real source = extend this + one new adapter. */
+export const SourceName = z.enum(["hackernews", "ycombinator", "url"]);
 export type SourceName = z.infer<typeof SourceName>;
 
 /** A freshness/traction signal — the core triage signal. */
