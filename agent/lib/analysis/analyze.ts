@@ -23,6 +23,23 @@ const log = createLogger("analysis");
 /** Max tool-calling steps in the single research pass (bounds cost). */
 const RESEARCH_STEPS = 6;
 
+/** Model used for the web-research pass when it runs on Anthropic native search. */
+const RESEARCH_MODEL = "claude-sonnet-4-5";
+
+/**
+ * Web search is independent of the analysis LLM. Anthropic's native server-side
+ * search runs via ANTHROPIC_API_KEY no matter which provider does the analysis,
+ * so when that key is present we always ground research with it — even if
+ * LLM_PROVIDER=bedrock/openai/gateway. Without the key, research falls back to
+ * the configured provider + the pluggable (Tavily/Exa) search tools.
+ */
+function researchConfig(analysisConfig: ReturnType<typeof loadLlmConfig>) {
+  if (process.env.ANTHROPIC_API_KEY) {
+    return { provider: "anthropic" as const, model: process.env.LLM_RESEARCH_MODEL ?? RESEARCH_MODEL };
+  }
+  return analysisConfig;
+}
+
 const conf = z.enum(["low", "med", "high"]);
 
 const ClaimBlock = z.array(
@@ -89,7 +106,7 @@ export interface AnalyzeDeps {
 const DIMENSIONS: readonly Dimension[] = ["team", "product", "market", "risk"];
 
 const defaultResearch: ResearchFn = async (candidate) => {
-  const config = loadLlmConfig();
+  const config = researchConfig(loadLlmConfig());
   const model = await resolveModel(config);
   const tools = await researchToolsFor(config);
   const res = await generateText({

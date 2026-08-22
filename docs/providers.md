@@ -3,12 +3,24 @@
 The pipeline is provider-pluggable (see `agent/lib/llm/provider.ts`). Pick a
 backend with two env vars; everything else is unchanged.
 
-| `LLM_PROVIDER` | `LLM_MODEL` example | Auth | Web search |
-|---|---|---|---|
-| `anthropic` (default) | `claude-sonnet-4-5` | `ANTHROPIC_API_KEY` | **Native** server-side (keyless) |
-| `bedrock` | `us.anthropic.claude-sonnet-4-5-20250929-v1:0` | AWS credential chain | `web_fetch` only, unless `TAVILY_API_KEY`/`EXA_API_KEY` |
-| `gateway` | `anthropic/claude-sonnet-4-5` | `AI_GATEWAY_API_KEY` | as configured |
-| `openai` | `gpt-5.4` | `OPENAI_API_KEY` | `web_fetch` only, unless a search key |
+| `LLM_PROVIDER` | `LLM_MODEL` example | Auth |
+|---|---|---|
+| `anthropic` (default) | `claude-sonnet-4-5` | `ANTHROPIC_API_KEY` |
+| `bedrock` | `us.anthropic.claude-sonnet-4-5-20250929-v1:0` | AWS credential chain |
+| `gateway` | `anthropic/claude-sonnet-4-5` | `AI_GATEWAY_API_KEY` |
+| `openai` | `gpt-5.4` | `OPENAI_API_KEY` |
+
+## Web search is independent of the LLM provider
+
+The web-research pass and the analysis LLM are decoupled (`agent/lib/analysis/analyze.ts`):
+
+- If `ANTHROPIC_API_KEY` is set, research always uses **Anthropic's native
+  server-side web search** — regardless of `LLM_PROVIDER`. So Bedrock/OpenAI/
+  gateway analysis still gets full open-web grounding (founder history, funding,
+  competitors). Override the research model with `LLM_RESEARCH_MODEL`.
+- Otherwise research falls back to the configured provider + pluggable search
+  (`TAVILY_API_KEY` / `EXA_API_KEY`); with no key at all it degrades to keyless
+  `web_fetch` of each candidate's own site.
 
 ## Amazon Bedrock
 
