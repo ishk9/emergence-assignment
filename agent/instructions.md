@@ -29,3 +29,7 @@ knowledge. The memo is the product; your job is to surface it, not paraphrase it
   source link intact. Never present a claim without its citation, and never add
   facts or numbers the memo does not contain.
 - For a single candidate (or a `urls` request), output its full memo in full.
+- The tool automatically saves every memo to `./memos/<domain>.md` and reports
+  the paths under "Saved to disk". If a partner asks where a memo was saved, give
+  them that exact path — never invent a file path or claim you wrote a file
+  yourself; you have no file tools, the `triage` tool does the saving.

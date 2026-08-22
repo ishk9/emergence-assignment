@@ -4,10 +4,33 @@
  *  - `urls`: triage the specific companies at those URLs (skip sourcing).
  * Returns a scored Pass/Watch/Meeting recommendation + cited memo per candidate.
  */
+import { mkdirSync, writeFileSync } from "node:fs";
 import { defineTool } from "eve/tools";
 import { z } from "zod";
 import { runTriage } from "../lib/pipeline/triage.ts";
 import { candidatesFromUrls } from "../lib/sources/urls.ts";
+import { createLogger } from "../lib/logger.ts";
+
+const log = createLogger("triage-tool");
+const MEMO_DIR = "memos";
+const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+
+/** Persist each rendered memo to ./memos/<domain>.md so every triage the user
+ *  runs is saved as a committable artifact (the chat agent can't write files
+ *  itself). Best-effort: a write failure never fails the triage call. */
+function saveMemos(candidates: { domain: string; memo: string }[]): string[] {
+  try {
+    mkdirSync(MEMO_DIR, { recursive: true });
+    return candidates.map((c) => {
+      const path = `${MEMO_DIR}/${slug(c.domain)}.md`;
+      writeFileSync(path, c.memo);
+      return path;
+    });
+  } catch (err) {
+    log.warn("failed to write memos", { err: String(err) });
+    return [];
+  }
+}
 
 export default defineTool({
   description:
@@ -36,17 +59,22 @@ export default defineTool({
           })
         : await runTriage(query ?? "", { limit });
 
+    const candidates = results.map((r) => ({
+      name: r.candidate.name,
+      domain: r.candidate.domain,
+      website: r.candidate.website,
+      verdict: r.recommendation.verdict,
+      score: r.score.total,
+      memo: r.memo,
+    }));
+    const saved = saveMemos(candidates);
+    log.info("saved memos", { count: saved.length, dir: MEMO_DIR });
+
     return {
       query: query ?? (urls?.length ? `${urls.length} url(s)` : "latest batch"),
       count: results.length,
-      candidates: results.map((r) => ({
-        name: r.candidate.name,
-        domain: r.candidate.domain,
-        website: r.candidate.website,
-        verdict: r.recommendation.verdict,
-        score: r.score.total,
-        memo: r.memo,
-      })),
+      savedTo: saved,
+      candidates,
     };
   },
   toModelOutput(out) {
@@ -59,9 +87,12 @@ export default defineTool({
     // Include the full memos verbatim so the model presents THEM (cited,
     // structured) instead of improvising prose from its own knowledge.
     const memos = out.candidates.map((c) => c.memo).join("\n\n---\n\n");
+    const saved = out.savedTo?.length
+      ? `\n\nSaved to disk: ${out.savedTo.join(", ")}`
+      : "";
     return {
       type: "text",
-      value: `Triaged ${out.count} candidates for "${out.query}" (ranked):\n${ranked}\n\n# Memos\n\n${memos}`,
+      value: `Triaged ${out.count} candidates for "${out.query}" (ranked):\n${ranked}${saved}\n\n# Memos\n\n${memos}`,
     };
   },
 });
