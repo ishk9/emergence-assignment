@@ -7,6 +7,7 @@ const noSleep = async () => {};
 test("classifyError buckets transient / terminal / validation", () => {
   assert.equal(classifyError(new Error("HTTP 503 overloaded")), "transient");
   assert.equal(classifyError(new Error("request timeout")), "transient");
+  assert.equal(classifyError(new TypeError("fetch failed")), "transient");
   assert.equal(classifyError(new Error("401 Unauthorized")), "terminal");
   assert.equal(classifyError(new Error("schema mismatch")), "validation");
 });

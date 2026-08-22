@@ -2,10 +2,10 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { loadLlmConfig, resolveModel } from "./provider.ts";
 
-test("loadLlmConfig defaults to anthropic + claude-sonnet-4-6", () => {
+test("loadLlmConfig defaults to anthropic + claude-sonnet-4-5", () => {
   const cfg = loadLlmConfig({} as NodeJS.ProcessEnv);
   assert.equal(cfg.provider, "anthropic");
-  assert.equal(cfg.model, "claude-sonnet-4-6");
+  assert.equal(cfg.model, "claude-sonnet-4-5");
 });
 
 test("loadLlmConfig reads LLM_PROVIDER + LLM_MODEL from env", () => {

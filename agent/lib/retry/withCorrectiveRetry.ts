@@ -41,7 +41,11 @@ const realSleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 export function classifyError(err: unknown): FailureKind {
   const m = String((err as { message?: string })?.message ?? err).toLowerCase();
-  if (/\b(429|500|502|503|504)\b|timeout|etimedout|econnreset|overloaded|rate.?limit/.test(m)) {
+  if (
+    /\b(429|500|502|503|504)\b|timeout|etimedout|econnreset|econnrefused|enotfound|overloaded|rate.?limit|fetch failed|network|socket|terminated|und_err/.test(
+      m,
+    )
+  ) {
     return "transient";
   }
   if (/\b(401|403)\b|unauthorized|forbidden|invalid api key/.test(m)) return "terminal";

@@ -159,13 +159,15 @@ export async function analyzeCandidate(
   const extract = deps.extract ?? defaultExtract;
 
   log.info("researching", { domain: candidate.domain });
-  let researched: ResearchResult;
-  try {
-    researched = await research(candidate);
-  } catch (err) {
-    log.warn("research failed", { domain: candidate.domain, err: String(err) });
-    researched = { notes: "", sources: candidate.sources.map((s) => s.url) };
-  }
+  // Research is the expensive call; retry transient network failures ("fetch
+  // failed", timeouts) with backoff instead of losing the whole pass. On
+  // exhaustion, fall back to the candidate's known URLs so extraction still runs.
+  const researched = await withCorrectiveRetry<ResearchResult>(() => research(candidate), {
+    label: `research:${candidate.domain}`,
+    maxAttempts: 2,
+    sleep: deps.sleep,
+    onExhausted: () => ({ notes: "", sources: candidate.sources.map((s) => s.url) }),
+  });
 
   const extraction = await withCorrectiveRetry<Extraction>(
     (correction) =>

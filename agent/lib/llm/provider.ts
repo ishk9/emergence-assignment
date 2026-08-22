@@ -28,7 +28,7 @@ const DEFAULT_CONFIG: LlmConfig = {
   // affordable; set LLM_MODEL=claude-opus-4-8 for maximum quality, or
   // LLM_PROVIDER=gateway/openai/bedrock to route elsewhere.
   provider: "anthropic",
-  model: "claude-sonnet-4-6",
+  model: "claude-sonnet-4-5",
 };
 
 const PROVIDERS: readonly LlmProvider[] = ["gateway", "openai", "anthropic", "bedrock"];
