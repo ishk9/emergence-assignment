@@ -8,7 +8,7 @@ a partner's desk so their time goes to the few worth reading closely.
 
 Built on [eve](https://eve.dev) (agent framework), TypeScript, the AI SDK.
 
-**▶ Walkthrough video (~5 min)** — _link coming_ — one startup, end to end.
+**▶ [Walkthrough video (~5 min)](https://www.loom.com/share/a9ebd637f398445d9feaeb85ab5eb8a5)** — one startup, end to end.
 
 ---
 
