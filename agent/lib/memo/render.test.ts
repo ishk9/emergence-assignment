@@ -12,7 +12,7 @@ const input: MemoInput = {
     freshness: [{ kind: "hn_traction", value: "312 points", url: "https://news.ycombinator.com/item?id=1", at: "2026-08-22T00:00:00.000Z", magnitude: 312 }],
   },
   results: [
-    { dimension: "team", findings: "Strong founders.", claims: [{ text: "Prior exit to BigCo", sourceUrl: "https://acme.com/about", confidence: "high" }], features: {} },
+    { dimension: "team", findings: "Strong founders.", claims: [{ text: "Prior exit to BigCo", sourceUrl: "https://acme.com/about", confidence: "high" }], features: {}, members: [{ name: "Ada Lovelace", role: "CEO", background: "Ex-Analytical Engine, prior exit to BigCo." }, { name: "Alan Turing", role: "CTO", background: "Ex-Bletchley Park." }] },
     { dimension: "market", findings: "Large market.", claims: [], features: {} },
   ],
   score: {
@@ -56,4 +56,11 @@ test("dimensions render in canonical order", () => {
 test("a dimension with no claims still renders its findings", () => {
   const md = renderMemo(input);
   assert.match(md, /### Market\n\nLarge market\./);
+});
+
+test("team section renders every founder's bio, not just the CEO", () => {
+  const md = renderMemo(input);
+  assert.match(md, /\*\*Ada Lovelace\*\* — CEO/);
+  assert.match(md, /\*\*Alan Turing\*\* — CTO/);
+  assert.match(md, /Ex-Bletchley Park\./);
 });

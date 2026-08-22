@@ -19,7 +19,13 @@ function renderDimension(r: DimensionResult): string {
     .map((c) => `- ${c.text} ([source](${c.sourceUrl}), ${c.confidence})`)
     .join("\n");
   const title = r.dimension.charAt(0).toUpperCase() + r.dimension.slice(1);
-  return `### ${title}\n\n${r.findings || "_No findings._"}${claims ? `\n\n${claims}` : ""}`;
+  // Per-founder bios (team only) — one block per founder so every founder is
+  // covered, not just the CEO.
+  const members = r.members?.length
+    ? "\n\n" +
+      r.members.map((m) => `**${m.name}**${m.role ? ` — ${m.role}` : ""}\n\n${m.background}`).join("\n\n")
+    : "";
+  return `### ${title}\n\n${r.findings || "_No findings._"}${members}${claims ? `\n\n${claims}` : ""}`;
 }
 
 export function renderMemo(input: MemoInput): string {

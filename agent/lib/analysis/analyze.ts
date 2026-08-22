@@ -20,8 +20,10 @@ import { buildContext, extractionPrompt, extractionSystem, researchSystem } from
 
 const log = createLogger("analysis");
 
-/** Max tool-calling steps in the single research pass (bounds cost). */
-const RESEARCH_STEPS = 6;
+/** Max tool-calling steps in the single research pass (bounds cost). Set to fit
+ *  one targeted lookup per founder plus the four dimensions; raising it raises
+ *  cost per query (the tradeoff against per-founder depth). */
+const RESEARCH_STEPS = 10;
 
 /** Model used for the web-research pass when it runs on Anthropic native search. */
 const RESEARCH_MODEL = "claude-sonnet-4-5";
@@ -52,6 +54,12 @@ const ExtractionSchema = z.object({
   team: z.object({
     findings: z.string(),
     claims: ClaimBlock,
+    // One entry per founder/key member — forces coverage of EVERY founder, not
+    // just the most-documented one. background = prior companies, education,
+    // notable projects, prior exits.
+    members: z.array(
+      z.object({ name: z.string(), role: z.string(), background: z.string() }),
+    ),
     features: z.object({
       priorExits: z.number(),
       technicalDepth: conf,
@@ -147,11 +155,13 @@ export function toDimensionResult(
   const claims = block.claims.filter((c) => Claim.safeParse(c).success);
   const dropped = block.claims.length - claims.length;
   if (dropped > 0) log.warn("dropped uncited claims", { dimension, dropped });
+  const members = "members" in block ? block.members : undefined;
   return DimensionResult.parse({
     dimension,
     findings: block.findings,
     claims,
     features: block.features,
+    members,
   });
 }
 
@@ -160,7 +170,7 @@ export function toDimensionResult(
 function degradedExtraction(): Extraction {
   const na = "Analysis unavailable (extraction failed).";
   return {
-    team: { findings: na, claims: [], features: { priorExits: 0, technicalDepth: "med", founderMarketFit: "med" } },
+    team: { findings: na, claims: [], members: [], features: { priorExits: 0, technicalDepth: "med", founderMarketFit: "med" } },
     product: { findings: na, claims: [], features: { differentiation: "med", technicalMoat: "med", stage: "beta" } },
     market: { findings: na, claims: [], features: { marketSize: "unknown", competition: "med", timing: "fair" } },
     risk: { findings: na, claims: [], features: { overallRisk: "med", mainRisk: "unknown" } },

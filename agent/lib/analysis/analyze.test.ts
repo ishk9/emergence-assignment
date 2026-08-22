@@ -22,7 +22,7 @@ const candidate: Candidate = {
 
 function fullExtraction(over: Partial<Extraction> = {}): Extraction {
   return {
-    team: { findings: "Strong founders.", claims: [{ text: "Prior exit", sourceUrl: "https://acme.com/about", confidence: "high" }], features: { priorExits: 1, technicalDepth: "high", founderMarketFit: "high" } },
+    team: { findings: "Strong founders.", claims: [{ text: "Prior exit", sourceUrl: "https://acme.com/about", confidence: "high" }], members: [{ name: "Ada Lovelace", role: "CEO", background: "Ex-Analytical Engine." }, { name: "Alan Turing", role: "CTO", background: "Ex-Bletchley." }], features: { priorExits: 1, technicalDepth: "high", founderMarketFit: "high" } },
     product: { findings: "Launched.", claims: [], features: { differentiation: "high", technicalMoat: "med", stage: "launched" } },
     market: { findings: "Large.", claims: [], features: { marketSize: "large", competition: "low", timing: "strong" } },
     risk: { findings: "Low.", claims: [], features: { overallRisk: "low", mainRisk: "competition" } },
@@ -43,6 +43,7 @@ test("toDimensionResult drops claims without a valid citation and keeps features
       { text: "cited", sourceUrl: "https://acme.com/about", confidence: "high" },
       { text: "uncited", sourceUrl: "not-a-url", confidence: "low" },
     ],
+    members: [{ name: "Ada Lovelace", role: "CEO", background: "Ex-Analytical Engine." }],
     features: { priorExits: 2, technicalDepth: "high", founderMarketFit: "med" },
   };
   const r = toDimensionResult("team", block);
@@ -50,6 +51,15 @@ test("toDimensionResult drops claims without a valid citation and keeps features
   assert.equal(r.claims.length, 1);
   assert.equal(r.features.priorExits, 2);
   assert.equal(r.features.technicalDepth, "high");
+  assert.equal(r.members?.length, 1); // per-founder bios carried through
+});
+
+test("toDimensionResult carries every founder's bio through", () => {
+  const results = toDimensionResult("team", fullExtraction().team);
+  assert.deepEqual(
+    results.members?.map((m) => m.name),
+    ["Ada Lovelace", "Alan Turing"], // not just the CEO
+  );
 });
 
 test("analyzeCandidate researches once then returns four dimensions with features", async () => {
@@ -80,7 +90,7 @@ test("analyzeCandidate still extracts when research throws", async () => {
 
 test("analyzeCandidate degrades when extraction keeps failing", async () => {
   const research: ResearchFn = async () => ({ notes: "", sources: [] });
-  const extract: ExtractFn = async () => fullExtraction({ team: { findings: "", claims: [], features: { priorExits: 0, technicalDepth: "low", founderMarketFit: "low" } } });
+  const extract: ExtractFn = async () => fullExtraction({ team: { findings: "", claims: [], members: [], features: { priorExits: 0, technicalDepth: "low", founderMarketFit: "low" } } });
   const results = await analyzeCandidate(candidate, { research, extract, sleep: async () => {} });
   const team = results.find((r) => r.dimension === "team")!;
   assert.match(team.findings, /unavailable/);

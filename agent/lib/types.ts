@@ -61,6 +61,16 @@ export const Claim = z.object({
 });
 export type Claim = z.infer<typeof Claim>;
 
+/** Per-founder background, so the team memo covers every founder — not just the
+ *  most-covered one (usually the CEO). Only populated on the team dimension. */
+export const TeamMember = z.object({
+  name: z.string().min(1),
+  role: z.string(),
+  /** Prior companies, education, notable projects, prior exits — in prose. */
+  background: z.string(),
+});
+export type TeamMember = z.infer<typeof TeamMember>;
+
 /**
  * Output of one analysis subagent. `features` are structured values the
  * (LLM-free) scorer consumes — enums-as-numbers, counts, magnitudes.
@@ -70,6 +80,8 @@ export const DimensionResult = z.object({
   findings: z.string(),
   claims: z.array(Claim),
   features: z.record(z.string(), z.union([z.number(), z.string()])),
+  /** Per-founder bios (team dimension only). */
+  members: z.array(TeamMember).optional(),
 });
 export type DimensionResult = z.infer<typeof DimensionResult>;
 
