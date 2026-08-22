@@ -1,0 +1,34 @@
+What this is: 
+I have created an ai agent which has several tools, for the input, give it any query or give it a couple of urls, after which it gives you a one page memo which has three verdicts, that are, pass/watch/ take a meeting. I’ve not created any generic agent, rather I’ve created a profile for each partner, the profile will basically be tailored or customised to the user’s habits or preferences or risk taking capacity. 
+I’ve built this using a Claude code, I defined the initial system design, scope, requirements, low level design and later on I had discussions and defined the design using Claude code. Moreover I also used SKILLS like compound engineering, and ponytail for writing a quality code. 
+
+Initially I was juggling between two options, either creating an AI orchestrator, or DAG. 
+So I already had an idea that there would be defined agents, there wouldn’t be any random workload, and hence using an AI orchestrator would add to unnecessary complexity and increase the token consumption. Therefore I went for DAG. 
+
+Later on after the many iterations I had with Claude code, I finalised the system design. The scoring algorithm was not decided yet however I was sure about not using LLMs for it, reason being LLMs can give me different outputs for the same input problem, that part was decided later.
+
+Further I asked Claude to use CE and ponytail skills to write the code, for which I ran multiple parallel agents for each section and pushed the code after the completion of each feature. 
+These skills helped Claude write a quality code instead of over optimising or over engineering each feature. 
+
+I wanted to smartly create the sub agent, reason being, in case the sub agent fails for any reason, then it should have a re-trial logic, which understands the error first and then spin up the sub agent again but this time with a better approach. 
+Moreover there were multiple options to fetch the history of the founding team, but I chose to go with web search tools provided by anthropic, reason being, the LinkedIn API has several restrictions on data usage, also if I were to create a separate web scraper for this then it would have taken a lot of time, resources and deploying a scraper would be a hurdle, hence the better option was to go with web search tools that the agent would run and that way it would have complete autonomy on what it wants to search. 
+
+I also instructed it to write detailed logs so that any error could be detected and it would increase the traceability overall. 
+I also gave it context7 mcp tool for referring to proper documentation. 
+After that I instructed it to test a feature thoroughly so that nearing the end when we face any errors in the future it would be predictable. 
+Later when I was testing it, I noticed that the entire output was not being rendered on the terminal, for which I instructed it to create a memos folder and add all the memos in an MD file and store it there. 
+Another issue that I encountered was that the sub agent was only fetching the history of the CEO of the company instead of the entire team, and that was because of my decision to limit the web search calls in order to keep the cost per memo in check, however later I had to increase as the output quality was not up to the mark to be able to judge the entire team’s abilities. 
+
+After brainstorming and looking for relevant algorithms online, and even having a chat with Claude code, I was not able to figure out a good enough way to score a startup’s performance and whether to invest in it or not, because there are numerous startups in which people did not have a lot of confidence but they anyway succeeded in the long run. Also like I previously mentioned, every individual/ partner has a different risk taking ability. A certain attraction towards a particular industry. When my cursor ran its continuous learning skill, I identified that why not have a user profile and maybe during the whole conversation it could learn the user preferences and update the profile, and based on that profile, each user would be provided with a different code for the startup. 
+The idea was simple, initially we would have only the user profile and no updation would be performed for now. 
+
+The algorithm works as follows: 
+The user creates a profile with “description” which contains the user interests and personal choices that a user may have while investing in a company. 
+Then we have a risk appetite, then we have weights, the user can tweak this based on their choice and can have different weights for team, product, markets, risk and freshness. 
+When each subagent returns its outputs, it also assigns a category to it. Categorisation is quite straightforward for an LLM rather than assigning a score,
+
+
+There are three steps for the algorithm, step one being, all the features are mapped to five sub scores, each clamped to a value between 0-1. 
+For step two, we perform weighted sums of the sub scores
+Step three, the LLM gets the profile plus the weighted score, and we provide a general guidance on the range for all the three verdicts that are affected by the user’s profiles and risk appetite. 
+Score is deterministic while verdict is a judgement.
